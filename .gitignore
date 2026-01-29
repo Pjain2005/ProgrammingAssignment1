@@ -1,0 +1,7 @@
+*.o
+*.exe
+matcher
+verifier
+bench
+results/*
+!.gitkeep
