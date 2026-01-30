@@ -17,14 +17,13 @@ RUN INSTRUCTIONS:
         ./program verify input.txt output.txt
     
     2. The available input files to find matches for are:
-        [INSERT AVAILABLE INPUT FILES]
+        example_1.in: This file contains the input provided to us in the Canvas description for the assignment.
 
     3. When the match function finishes running, it will have written an output file with a name in this format:
-        [INSERT FORMAT]
+        <input file name>.out
+    So, the output file containing the matches from example_1.in would be named example_1.out. To avoid confusion, our program also prints the name of the output file it generated.
 
 ASSUMPTIONS:
     1. n > 0 and is always included in input file.
     2. Hospitals and students will be represented by integers.
     3. Files do not include empty lines.
-
-    
