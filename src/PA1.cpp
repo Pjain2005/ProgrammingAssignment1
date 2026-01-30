@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -6,13 +7,70 @@
 #include <map>
 #include <queue>
 #include <set>
+#include <chrono>
 #include <cstdio>
 
 using namespace std;
 
+// TIMER STUFF
+class Timer {
+private:
+    chrono::high_resolution_clock::time_point startTime;
+    chrono::high_resolution_clock::time_point endTime;
+    bool isRunning;
+
+public:
+    Timer() : isRunning(false) {}
+    
+    void start() {
+        startTime = chrono::high_resolution_clock::now();
+        isRunning = true;
+    }
+    
+    void stop() {
+        endTime = chrono::high_resolution_clock::now();
+        isRunning = false;
+    }
+    
+    double elapsedMilliseconds() const {
+        if (isRunning) {
+            auto now = chrono::high_resolution_clock::now();
+            return chrono::duration<double, milli>(now - startTime).count();
+        }
+        return chrono::duration<double, milli>(endTime - startTime).count();
+    }
+    
+    double elapsedMicroseconds() const {
+        if (isRunning) {
+            auto now = chrono::high_resolution_clock::now();
+            return chrono::duration<double, micro>(now - startTime).count();
+        }
+        return chrono::duration<double, micro>(endTime - startTime).count();
+    }
+    
+    double elapsedSeconds() const {
+        if (isRunning) {
+            auto now = chrono::high_resolution_clock::now();
+            return chrono::duration<double>(now - startTime).count();
+        }
+        return chrono::duration<double>(endTime - startTime).count();
+    }
+    
+    void printElapsed(const string &label) const {
+        double ms = elapsedMilliseconds();
+        if (ms < 1.0) {
+            cout << label << ": " << fixed << setprecision(3) << elapsedMicroseconds() << " μs\n";
+        } else if (ms < 1000.0) {
+            cout << label << ": " << fixed << setprecision(3) << ms << " ms\n";
+        } else {
+            cout << label << ": " << fixed << setprecision(3) << elapsedSeconds() << " s\n";
+        }
+    }
+};
+
 // MATCHER FUNCTIONS
 //reads one preference line and checks it's a permutation of 1..n
-bool readPermutationLine(istream &in, int n, vector<int> &line, const string &who, int index, string &errorMessage) {
+bool readPermutationLine(istream &in, int n, vector<int> &line, const string &who, int index, string &errorMessage, bool enableTiming = false) {
     vector<int> seen(n + 1, 0); //seen[x]=1 means x already appeared in this line
 
     for (int pos = 0; pos < n; pos++) {
@@ -147,7 +205,14 @@ bool writeMatchingToFile(const string &path, int n, const vector<int> &matchHosp
 
 //this is the "big matcher function" that does everything matcher-related in one call;
 //it returns true if it worked, false if something went wrong (and fills errorMessage)
-bool runMatcherFromFiles(const string &inputFile, const string &matchingFile, string &errorMessage) {
+bool runMatcherFromFiles(const string &inputFile, const string &matchingFile, string &errorMessage, bool enableTiming = false) {
+    Timer totalTimer;
+    Timer readTimer;
+    Timer matchTimer;
+    Timer writeTimer;
+    
+    if (enableTiming) totalTimer.start();
+    
     ifstream in(inputFile); //try to open the input file
     if (!in) {
         errorMessage = "could not open input file";
@@ -157,19 +222,34 @@ bool runMatcherFromFiles(const string &inputFile, const string &matchingFile, st
     int n = 0;
     vector<vector<int>> hospitalPreference, studentPreference;
 
+    if (enableTiming) readTimer.start();
     //read and validate the preferences from the input file
     if (!readPreferencesFromStream(in, n, hospitalPreference, studentPreference, errorMessage)) {
         //errorMessage already got set inside readPreferencesFromStream
         return false;
     }
+    if (enableTiming) readTimer.stop();
 
+    if (enableTiming) matchTimer.start();
     //run gale-shapley and get final matches
     vector<int> matchHospital = runMatcher(n, hospitalPreference, studentPreference);
+    if (enableTiming) matchTimer.stop();
 
+    if (enableTiming) writeTimer.start();
     //write matching to the output file
     if (!writeMatchingToFile(matchingFile, n, matchHospital)) {
         errorMessage = "could not write matching file";
         return false;
+    }
+    if (enableTiming) writeTimer.stop();
+
+    if (enableTiming) {
+        totalTimer.stop();
+        cout << "Timing Information:\n";
+        totalTimer.printElapsed("Total Time");
+        readTimer.printElapsed("Reading Preferences");
+        matchTimer.printElapsed("Matching");
+        writeTimer.printElapsed("Writing Matching");
     }
 
     return true; //everything worked!
@@ -254,7 +334,14 @@ bool checkStability(const map<int, int>& matches, const map<int, vector<int>>& h
     return true;
 }
 
-int verifyOutput(const string& input, const string& output) {
+int verifyOutput(const string& input, const string& output, bool enableTiming = false) {
+    Timer totalTimer;
+    Timer readTimer;
+    Timer validityTimer;
+    Timer stabilityTimer;
+
+    if (enableTiming) totalTimer.start();
+    
     ifstream inputFile(input);
     ifstream outputFile(output);
 
@@ -262,9 +349,10 @@ int verifyOutput(const string& input, const string& output) {
         return -1;
     }
 
+    if (enableTiming) readTimer.start();
+    // Read matches from output file
     map<int, int> matches;
     string line;
-
     while (getline(outputFile, line)) {
         int hospital, student;
         int parseResult = sscanf(line.c_str(), "%d %d", &hospital, &student);
@@ -326,14 +414,29 @@ int verifyOutput(const string& input, const string& output) {
 
         studentPrefs[i] = prefs;
     }
+    if (enableTiming) readTimer.stop();
 
+    if (enableTiming) validityTimer.start();
     // Check validity first
     if (!checkValidity(matches, n)) {
         return -2;
     }
+    if (enableTiming) validityTimer.stop();
 
+    if (enableTiming) stabilityTimer.start();
+    // Check stability
     if (!checkStability(matches, hospitalPrefs, studentPrefs, n)) {
         return -3;
+    }
+    if (enableTiming) stabilityTimer.stop();
+
+    if (enableTiming) {
+        totalTimer.stop();
+        cout << "Timing Information:\n";
+        totalTimer.printElapsed("Total Time");
+        readTimer.printElapsed("Reading Files");
+        validityTimer.printElapsed("Checking Validity");
+        stabilityTimer.printElapsed("Checking Stability");
     }
 
     return 1;
