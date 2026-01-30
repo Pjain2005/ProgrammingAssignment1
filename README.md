@@ -23,6 +23,8 @@ RUN INSTRUCTIONS:
         [INSERT FORMAT]
 
 ASSUMPTIONS:
-    1. We assume that the hospitals and students will be represented by integers.
+    1. n > 0 and is always included in input file.
+    2. Hospitals and students will be represented by integers.
+    3. Files do not include empty lines.
 
     
