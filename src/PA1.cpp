@@ -68,6 +68,41 @@ public:
     }
 };
 
+//checks if a file already exists
+bool fileExists(const string &path) {
+    ifstream f(path);
+    return f.good();
+}
+
+//makes sure matcher csv exists and has a header
+void ensureMatcherCsv(const string &path) {
+    if (fileExists(path)) return;
+    ofstream out(path);
+    out << "n,total_us,read_us,match_us,write_us\n";
+}
+
+//appends one matcher timing row
+void appendMatcherRow(const string &path, int n, double totalMs, double readMs, double matchMs, double writeMs) {
+    ofstream out(path, ios::app);
+    out << fixed << setprecision(6);
+    out << n << "," << totalMs << "," << readMs << "," << matchMs << "," << writeMs << "\n";
+}
+
+//makes sure verifier csv exists and has a header
+void ensureVerifierCsv(const string &path) {
+    if (fileExists(path)) return;
+    ofstream out(path);
+    out << "n,total_us,read_us,valid_us,stable_us\n";
+}
+
+//appends one verifier timing row
+void appendVerifierRow(const string &path, int n, double totalMs, double readMs, double validMs, double stableMs) {
+    ofstream out(path, ios::app);
+    out << fixed << setprecision(6);
+    out << n << "," << totalMs << "," << readMs << "," << validMs << "," << stableMs << "\n";
+}
+
+
 // MATCHER FUNCTIONS
 //reads one preference line and checks it's a permutation of 1..n
 bool readPermutationLine(istream &in, int n, vector<int> &line, const string &who, int index, string &errorMessage, bool enableTiming = false) {
@@ -205,11 +240,19 @@ bool writeMatchingToFile(const string &path, int n, const vector<int> &matchHosp
 
 //this is the "big matcher function" that does everything matcher-related in one call;
 //it returns true if it worked, false if something went wrong (and fills errorMessage)
-bool runMatcherFromFiles(const string &inputFile, const string &matchingFile, string &errorMessage, bool enableTiming = false) {
+bool runMatcherFromFiles(const string &inputFile, const string &matchingFile, string &errorMessage, bool enableTiming, int &nOut, double &totalMs, double &readMs, double &matchMs, double &writeMs) {
+
     Timer totalTimer;
     Timer readTimer;
     Timer matchTimer;
     Timer writeTimer;
+
+    //default outputs (so caller doesn't get garbage)
+    nOut = 0;
+    totalMs = 0.0;
+    readMs = 0.0;
+    matchMs = 0.0;
+    writeMs = 0.0;
     
     if (enableTiming) totalTimer.start();
     
@@ -245,11 +288,17 @@ bool runMatcherFromFiles(const string &inputFile, const string &matchingFile, st
 
     if (enableTiming) {
         totalTimer.stop();
-        cout << "Timing Information:\n";
-        totalTimer.printElapsed("Total Time");
-        readTimer.printElapsed("Reading Preferences");
-        matchTimer.printElapsed("Matching");
-        writeTimer.printElapsed("Writing Matching");
+        //send timing data back to main()
+        nOut = n;
+        totalMs = totalTimer.elapsedMicroseconds();
+        readMs  = readTimer.elapsedMicroseconds();
+        matchMs = matchTimer.elapsedMicroseconds();
+        writeMs = writeTimer.elapsedMicroseconds();
+
+    } 
+    else {
+        //still send n back even if timing off (handy)
+        nOut = n;
     }
 
     return true; //everything worked!
@@ -334,11 +383,18 @@ bool checkStability(const map<int, int>& matches, const map<int, vector<int>>& h
     return true;
 }
 
-int verifyOutput(const string& input, const string& output, bool enableTiming = false) {
+int verifyOutput(const string &input, const string &output, bool enableTiming, int &nOut, double &totalMs, double &readMs, double &validMs, double &stableMs) {
+
     Timer totalTimer;
     Timer readTimer;
     Timer validityTimer;
     Timer stabilityTimer;
+
+    nOut = 0;
+    totalMs = 0.0;
+    readMs = 0.0;
+    validMs = 0.0;
+    stableMs = 0.0;
 
     if (enableTiming) totalTimer.start();
     
@@ -373,8 +429,18 @@ int verifyOutput(const string& input, const string& output, bool enableTiming = 
     }
     
     // Read number of hospitals/students
-    getline(inputFile, line);
-    int n = line[0] - '0';
+    int n;
+    inputFile.clear();
+    inputFile.seekg(0);
+    if (!(inputFile >> n)) {
+        cout << "INVALID - could not read n\n";
+        return -2;
+    }
+
+    nOut = n;
+    string dummy;
+    getline(inputFile, dummy); //eat rest of the line after n
+
 
     map<int, vector<int>> hospitalPrefs;
     map<int, vector<int>> studentPrefs; 
@@ -432,11 +498,11 @@ int verifyOutput(const string& input, const string& output, bool enableTiming = 
 
     if (enableTiming) {
         totalTimer.stop();
-        cout << "Timing Information:\n";
-        totalTimer.printElapsed("Total Time");
-        readTimer.printElapsed("Reading Files");
-        validityTimer.printElapsed("Checking Validity");
-        stabilityTimer.printElapsed("Checking Stability");
+        totalMs  = totalTimer.elapsedMicroseconds();
+        readMs   = readTimer.elapsedMicroseconds();
+        validMs  = validityTimer.elapsedMicroseconds();
+        stableMs = stabilityTimer.elapsedMicroseconds();
+
     }
 
     return 1;
@@ -470,13 +536,18 @@ int main(int argc, char* argv[]) {
         }
         
         string errorMessage;
-        bool ok = runMatcherFromFiles(input, outputFile, errorMessage);
+        int n;
+        double totalMs, readMs, matchMs, writeMs;
+        bool ok = runMatcherFromFiles(input, outputFile, errorMessage, true, n, totalMs, readMs, matchMs, writeMs);
         
         if (!ok) {
             cout << "INVALID (" << errorMessage << ")\n";
             return -1;
         }
         
+        ensureMatcherCsv("data/matcher_times.csv");
+        appendMatcherRow("data/matcher_times.csv", n, totalMs, readMs, matchMs, writeMs);
+
         cout << "Wrote matches to " << outputFile << "\n";
     
     } else if (command == "verify") {
@@ -485,7 +556,11 @@ int main(int argc, char* argv[]) {
             return -1;
         }
 
-        int result = verifyOutput(input, output);
+        int nV;
+        double totalV, readV, validV, stableV;
+
+        int result = verifyOutput(input, output, true, nV, totalV, readV, validV, stableV);
+
         if (result == -1) {
             cout << "Error: Could not open one of the files.\n";
             return -1;
@@ -493,10 +568,13 @@ int main(int argc, char* argv[]) {
             return -1;
         } else if (result == -3) {
             return -1;
-        }
-        else if (result == 1) {
+        } else if (result == 1) {
+            ensureVerifierCsv("data/verifier_times.csv");
+            appendVerifierRow("data/verifier_times.csv", nV, totalV, readV, validV, stableV);
+
             cout << "VALID STABLE\n";
         }
+
     } else {
         cout << "Error: Unknown command '" << command << "'.\n";
         return -1;
